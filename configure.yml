@@ -5,7 +5,7 @@
     jenkins_hostname: jenkins.activision.com
     jenkins_plugins:
       - ansible
-    __java_packages:
+    java_packages:
       - java-1.8.0-openjdk
   roles:
     - role: java
