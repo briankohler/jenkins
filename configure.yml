@@ -2,7 +2,7 @@
 
 - hosts: all
   vars:
-    jenkins_hostname: jenkins.activision.com
+    jenkins_hostname: localhost
     jenkins_plugins:
       - ansible
     java_packages:
