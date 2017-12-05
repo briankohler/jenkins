@@ -1,0 +1,9 @@
+---
+
+- src: https://github.com/geerlingguy/ansible-role-jenkins.git
+  version: master
+  name: jenkins
+
+- src: https://github.com/geerlingguy/ansible-role-java.git
+  version: master
+  name: java
