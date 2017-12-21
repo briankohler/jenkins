@@ -1,0 +1,169 @@
+---
+
+- name: set lb prd
+  set_fact:
+    lb_subnet_env: "prd"
+    lb_dns_name: "{{ ec2_role }}.{{ ec2_domain }}"
+    lb_rule: "{{ ec2_role }}*.{{ ec2_domain }}"
+  when: >
+        ec2_env == "prd"
+
+- name: set lb beta
+  set_fact:
+    lb_subnet_env: "prd"
+    lb_dns_name: "{{ ec2_env }}-{{ ec2_role }}.{{ ec2_domain }}"
+    lb_rule: "{{ ec2_env }}-{{ ec2_role }}*.{{ ec2_domain }}"
+  when: >
+        ec2_env == "beta"
+
+- name: set lb mgmt
+  set_fact:
+    lb_subnet_env: "mgmt"
+    lb_dns_name: "{{ ec2_role }}.{{ ec2_domain }}"
+    lb_rule: "{{ ec2_role }}*.{{ ec2_domain }}"
+  when: >
+        ec2_env == "mgmt"
+
+- name: set lb nonprd
+  set_fact:
+    lb_subnet_env: "nonprd"
+    lb_dns_name: "{{ ec2_env }}-{{ ec2_role }}.{{ ec2_domain }}"
+    lb_rule: "{{ec2_env }}-{{ ec2_role }}*.{{ ec2_domain }}"
+  when: >
+        lb_subnet_env is not defined
+
+- name: Gather EC2 facts.
+  ec2_instance_facts:
+    region: "{{ ec2_region }}"
+    filters:
+      "tag:AnsibleRole": "{{ ec2_role }}"
+      "instance-state-code": "16"
+  register: ec2_instance_facts
+
+- name: Create alb targets 
+  set_fact:
+    alb_targets:
+      - Id: "{{ item.instance_id }}"
+        Port: "{{ lb_instance_port }}"
+  with_items:
+    - "{{ ec2_instance_facts.instances }}"
+
+- name: Create default alb target group
+  elb_target_group:  "{{ alb_default_target_group }}"
+
+- name: Create alb target group
+  elb_target_group:
+     name: "{{ ec2_env }}-{{ ec2_role }}-tg"
+     protocol: "{{ lb_protocol }}"
+     port: "{{ lb_instance_port }}"
+     modify_targets: yes
+     region: "{{ ec2_region }}"
+     vpc_id: "{{ ec2_vpc }}"
+     health_check_path: "{{ lb_healthcheck_path }}"
+     health_check_protocol: "{{ lb_healthcheck_protocol }}"
+     state: present
+     targets: "{{ alb_targets }}"
+
+- name: ALB Target Group Facts
+  elb_target_group_facts:
+    region: "{{ ec2_region }}"
+    names:
+      - "{{ ec2_env }}-{{ ec2_role }}-tg"
+  register: alb_target_group_facts
+
+- name: elb_application_lb_facts
+  elb_application_lb_facts:
+    region: "{{ ec2_region }}"
+    names:
+      - "{{ lb_subnet_env }}-{{ ec2_alb[lb_subnet_env][lb_scheme]['scheme'] }}-alb"
+  register: alb_facts
+  ignore_errors: True
+
+- name: Create ALB
+  elb_application_lb:
+    name: "{{ lb_subnet_env }}-{{ ec2_alb[lb_subnet_env][lb_scheme]['scheme'] }}-alb"
+    subnets: "{{ ec2_alb[lb_subnet_env][lb_scheme]['subnets'] }}"
+    security_groups: "{{ ec2_alb[lb_subnet_env][lb_scheme]['security_groups'] }}"
+    scheme: "{{ ec2_alb[lb_subnet_env][lb_scheme]['scheme'] }}"
+    tags: "{{ ec2_alb[lb_subnet_env][lb_scheme]['tags'] }}"
+    purge_listeners: no
+    region: "{{ ec2_region }}"
+    state: present
+    listeners: "{{ alb_default_http_listener }} + {{ alb_default_https_listener }}"
+  when:
+    - alb_facts.load_balancers == []
+
+- name: elb_application_lb_facts
+  elb_application_lb_facts:
+    region: "{{ ec2_region }}"
+    names:
+      - "{{ lb_subnet_env }}-{{ ec2_alb[lb_subnet_env][lb_scheme]['scheme'] }}-alb"
+  register: alb_facts
+
+- name: init priorities list
+  set_fact:
+    alb_priorities: []
+    found_priority: False
+
+- name: find pre-existing priority
+  set_fact:
+    alb_priorities: "{{ alb_priorities }} + [ {{ item.priority|int - 1 }} ]"
+    found_priority: True
+  with_items:
+    - "{{ alb_facts.load_balancers[0].listeners[0].rules }}"
+  when:
+    - item.actions[0].target_group_arn == alb_target_group_facts.target_groups[0].target_group_arn|quote
+
+- name: gather priorities
+  set_fact:
+    alb_priorities: "{{ alb_priorities }} + [ {{ item.priority|int }} ]"
+  with_items:
+    - "{{ alb_facts.load_balancers[0].listeners[0].rules }}"
+  when: found_priority == False 
+
+- name: sorted priorities
+  set_fact:
+    alb_priorities: "{{ alb_priorities|sort }}"
+  
+- name: debug priority
+  debug:
+    msg: "{{ alb_priorities }}"
+
+- name: Add https rule
+  command: >
+          aws --region={{ ec2_region }} elbv2 create-rule --listener-arn={{ alb_facts.load_balancers[0].listeners[0].listener_arn|quote }} --priority={{ alb_priorities[-1]|int + 1 }} --conditions=Field={{ alb_https_routing_rule }},Values={{ lb_rule|quote }} --actions=Type=forward,TargetGroupArn={{ alb_target_group_facts.target_groups[0].target_group_arn|quote }}
+
+- name: Add http rule
+  command: >
+          aws --region={{ ec2_region }} elbv2 create-rule --listener-arn={{ alb_facts.load_balancers[0].listeners[1].listener_arn|quote }} --priority={{ alb_priorities[-1]|int + 1 }} --conditions=Field={{ alb_https_routing_rule }},Values={{ lb_rule|quote }} --actions=Type=forward,TargetGroupArn={{ alb_target_group_facts.target_groups[0].target_group_arn|quote }}
+
+- name: Register Targets
+  command: >
+           aws --region {{ ec2_region }} elbv2 register-targets --target-group-arn {{ item.1.target_group_arn }} --targets Id={{ item.0.Id }},Port={{ lb_instance_port }} 
+  with_together:
+    - "{{ alb_targets }}"
+    - "{{ alb_target_group_facts.target_groups }}"
+
+- name: elb_application_lb_facts
+  elb_application_lb_facts:
+    region: "{{ ec2_region }}"
+    names:
+      - "{{ lb_subnet_env }}-{{ ec2_alb[lb_subnet_env][lb_scheme]['scheme'] }}-alb"
+  register: alb_facts
+
+- name: Register ALB DNS Name
+  local_action:
+    module: "route53"
+    state: "create"
+    zone: "{{ ec2_domain }}."
+    private_zone: "{{ ec2_private_zone }}"
+    wait: yes
+    vpc_id: "{{ ec2_vpc }}"
+    record: "{{ lb_dns_name }}"
+    type: "CNAME"
+    overwrite: yes
+    ttl: "300"
+    value:
+      - "{{ item.dns_name }}"
+  with_items:
+    - "{{ alb_facts.load_balancers }}"

@@ -1,0 +1,81 @@
+---
+
+- name: set lb prd
+  set_fact:
+    rds_subnet_env: "prdprivate"
+  when: >
+        ec2_env == "prd"
+
+- name: set lb mgmt
+  set_fact:
+    rds_subnet_env: "mgmt"
+  when: >
+        ec2_env == "mgmt"
+
+- name: set lb prd
+  set_fact:
+    rds_subnet_env: "nonprdprivate"
+  when: >
+        rds_subnet_env is not defined
+
+- name:
+  local_action:
+    module: "rds_subnet_group"
+    state: present
+    name: "{{ ec2_env }}-{{ ec2_role }}-{{ rds_db_engine }}-sg"
+    region: "{{ ec2_region }}"
+    subnets: "{{ ec2_vpc_subnet[rds_subnet_env] }}"
+
+- name: Provisioning RDS instance
+  local_action:
+    module: rds
+    command: create
+    apply_immediately: yes
+    backup_retention: "{{ rds_backup_retention }}"
+    character_set_name: UTF-8
+    region: "{{ ec2_region }}"
+    db_engine: "{{ rds_db_engine }}"
+    db_name: "{{ ec2_env }}{{ ec2_role }}"
+    engine_version: "{{ rds_db_engine_version }}"
+    force_failover: yes
+    instance_name: "{{ ec2_env }}-{{ ec2_role }}-{{ rds_db_engine }}"
+    instance_type: "{{ rds_db_instance_type }}"
+    multi_zone: "{{ rds_db_multi_zone }}"
+    password: "{{ rds_db_root_password }}"
+    publicly_accessible: no
+    vpc_security_groups: "{{ rds_db_security_groups }}"
+    size: "{{ rds_db_size }}"
+    subnet: "{{ ec2_env }}-{{ ec2_role }}-{{ rds_db_engine }}-sg"
+    upgrade: yes
+    username: root
+    wait: yes
+    tags:
+      Name: "{{ ec2_env }}-{{ ec2_role}}-{{ rds_db_engine }}"
+      AnsibleRole: "{{ ec2_role }}"
+      AnsibleEnv: "{{ ec2_env }}"
+
+- name: RDS Facts
+  local_action:
+    module: "route53"
+    command: facts
+    instance_name: "{{ ec2_env }}-{{ ec2_role }}-{{ rds_db_engine }}"
+  register: rds
+
+- name: Register RDS Route53
+  local_action:
+    module: "route53"
+    state: "create"
+    zone: "{{ ec2_domain }}."
+    private_zone: "{{ ec2_private_zone }}"
+    wait: yes
+    vpc_id: "{{ ec2_vpc }}"
+    record: "{{ ec2_env }}-{{ ec2_role }}db.{{ ec2_domain }}"
+    type: "CNAME"
+    overwrite: yes
+    ttl: "300"
+    value:
+      - "{{ item.1.dns_name }}"
+  with_items:
+    - "{{ rds.results }}"
+  when: rds_results is defined
+

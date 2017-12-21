@@ -1,0 +1,18 @@
+#!/bin/bash -x
+
+hostname {{ ec2_env }}-{{ ec2_role }}{{ '%02d'|format(item|int + 1) }}
+echo "{{ ec2_env }}-{{ ec2_role }}{{ '%02d'|format(item|int + 1) }}" > /etc/hostname
+echo "HOSTNAME={{ ec2_env }}-{{ ec2_role }}{{ '%02d'|format(item|int + 1) }}.{{ ec2_domain }}" >> /etc/sysconfig/network
+echo "manage_etc_hosts: true" >> /etc/cloud/cloud.cfg.d/00_hostname.cfg
+echo "hostname: {{ ec2_env }}-{{ ec2_role }}{{ '%02d'|format(item|int + 1) }}" >> /etc/cloud/cloud.cfg.d/00_hostname.cfg
+echo "fqdn: {{ ec2_env }}-{{ ec2_role }}{{ '%02d'|format(item|int + 1) }}.{{ ec2_domain }}" >> /etc/cloud/cloud.cfg.d/00_hostname.cfg
+service network restart
+service cloud-init restart
+
+
+{% if callback_key is defined -%}
+
+curl -i -s -k --data "host_config_key={{ callback_key }}" https://tower.{{ ec2_domain }}/api/v1/job_templates/{{ job_template_id }}/callback/
+
+{% endif %}
+

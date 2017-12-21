@@ -1,0 +1,187 @@
+---
+
+  ec2_vpc_subnet:
+    mgmt:
+      - 'subnet-6c762724'
+      - 'subnet-8f3405e9'
+      - 'subnet-25806e7f'
+    nonprdprivate:
+      - 'subnet-xxxxxx'
+      - 'subnet-xxxxxx'
+      - 'subnet-xxxxxx'
+    nonprdpublic:
+      - 'subnet-xxxxxx'
+      - 'subnet-xxxxxx'
+      - 'subnet-xxxxxx'
+    prdprivate:
+      - 'subnet-yyyyyy'
+      - 'subnet-yyyyyy'
+      - 'subnet-yyyyyy'
+    prdpublic:
+      - 'subnet-yyyyyy'
+      - 'subnet-yyyyyy'
+      - 'subnet-yyyyyy'
+
+
+  ec2_private_zone: yes
+  ec2_vpc: "vpc-7824d001"
+  ec2_spot_type: 'persistent'
+  ec2_shutdown_behavior: 'stop'
+  ec2_monitoring: yes
+  ec2_termination_protection: no
+  ec2_key: 'mops-keypair'
+  ec2_instance_type: 't2.small'
+  ec2_domain: 'mops.activision.com'
+  ec2_ami_id: 'ami-cebf1cb6'
+  ec2_region: 'us-west-2'
+  ec2_az:
+    - "{{ ec2_region}}a"
+    - "{{ ec2_region}}b"
+    - "{{ ec2_region}}c"
+
+  ec2_sg: "default-sg"
+  ec2_root_volume_size: 8
+  ec2_ebs_optimized: false
+  ec2_env: "mgmt"
+  ec2_iam_role: "ec2_readonly"
+
+  ec2_certificate_arn: "arn:aws:acm:us-west-2:644910218602:certificate/83f9c9db-8bb5-4077-a7ae-549d9720190f"
+
+  ec2_alb:
+    mgmt: 
+      internal:
+        subnets: "{{ ec2_vpc_subnet['mgmt'] }}"
+        tags:
+          Name: "mgmt-private-alb"
+        scheme: "internal"
+        security_groups:
+          - "MgmtPrivateALB"
+    nonprd:
+      internal:
+        subnets: "{{ ec2_vpc_subnet['nonprdprivate'] }}"
+        tags:
+          Name: "nonprd-private-alb"
+        scheme: "internal"
+        security_groups:
+          - "NonprdPrivateALB"
+      public:
+        subnets: "{{ ec2_vpc_subnet['nonprdpublic'] }}"
+        tags:
+          Name: "nonprd-public-alb"
+        scheme: "public-facing"
+        security_groups:
+          - "NonprdPublicALB"
+    prd:
+      internal:
+        subnets: "{{ ec2_vpc_subnet['prdprivate'] }}"
+        tags:
+          Name: "prd-private-alb"
+        scheme: "internal"
+        security_groups:
+          - "PrdPrivateALB"
+      public:
+        subnets: "{{ ec2_vpc_subnet['prdpublic'] }}"
+        tags:
+          Name: "Prd-public-alb"
+        scheme: "public-facing"
+        security_groups:
+          - "PrdPublicALB"
+
+  ec2_nlb:
+    mgmt: 
+      internal:
+        subnets: "{{ ec2_vpc_subnet['mgmt'] }}"
+        tags:
+          Name: "mgmt-private-nlb"
+        scheme: "internal"
+    nonprd:
+      internal:
+        subnets: "{{ ec2_vpc_subnet['nonprdprivate'] }}"
+        tags:
+          Name: "nonprd-private-nlb"
+        scheme: "internal"
+      public:
+        subnets: "{{ ec2_vpc_subnet['nonprdpublic'] }}"
+        tags:
+          Name: "nonprd-public-nlb"
+        scheme: "public-facing"
+    prd:
+      internal:
+        subnets: "{{ ec2_vpc_subnet['prdprivate'] }}"
+        tags:
+          Name: "prd-private-nlb"
+        scheme: "internal"
+      public:
+        subnets: "{{ ec2_vpc_subnet['prdpublic'] }}"
+        tags:
+          Name: "Prd-public-nlb"
+        scheme: "public-facing"
+
+  alb_default_target_group:
+    name: "{{ ec2_env }}-alb-default-tg"
+    protocol: "HTTP"
+    port: "80"
+    vpc_id: "{{ ec2_vpc }}"
+    health_check_path: "/"
+    health_check_protocol: "HTTP"
+    state: present
+    region: "{{ ec2_region }}"
+    wait: yes
+    purge_tags: yes
+    tags:
+      Name: "{{ ec2_env }}-alb-default-tg"
+
+  alb_http_rules: []
+  lb_protocol: "HTTPS"
+  lb_port: "443"
+  lb_healthcheck_path: "/"
+  lb_healthcheck_protocol: "HTTP"
+  lb_scheme: "internal"
+  alb_http_routing_rule: "host-header"
+  alb_http_routing_rule_patterns: []
+  alb_https_routing_rule: "host-header"
+  alb_https_routing_rule_patterns: []
+  lb_rules: "{{ alb_https_routing_rule_patterns + alb_http_routing_rule_patterns }}"
+   
+  alb_default_http_listener:
+    - Protocol: "HTTP"
+      Port: "80"
+      DefaultActions:
+        - Type: forward
+          TargetGroupName: "{{ ec2_env }}-alb-default-tg"
+      Rules: "{{ alb_http_rules }}"
+
+  alb_https_rules: []
+
+  alb_default_https_listener:
+    - Protocol: "HTTPS"
+      Port: "443"
+      DefaultActions:
+        - Type: forward
+          TargetGroupName: "{{ ec2_env}}-alb-default-tg"
+      Certificates:
+        - CertificateArn: "{{ ec2_certificate_arn }}"    
+      SslPolicy: "ELBSecurityPolicy-2015-05"
+      Rules: "{{ alb_https_rules }}"
+
+  nlb_target_group:
+    name: "{{ ec2_env }}-nlb-default-tg"
+    protocol: "TCP"
+    port: "{{ lb_port }}"
+    vpc_id: "{{ ec2_vpc }}"
+    health_check_protocol: TCP
+    state: present
+    wait: True
+
+  nlb_listener:
+    - Protocol: TCP
+      Port: "{{ instance_port }}"
+      DefaultActions:
+        - Type: forward
+        - TargetGroupName: "{{ ec2_env}}-nlb-default-tg"
+
+  rds_database: ""
+  rds_db_engine: "MySQL"
+  rds_dbs_engine_version: "5.7.17"
+  rds_db_instance_type: "db.t2.micro"
+

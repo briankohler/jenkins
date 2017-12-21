@@ -1,0 +1,18 @@
+---
+
+- include: "rds.yaml"
+  when:
+    - rds_database is defined
+    - rds_database != ""
+- include: "instance.yaml"
+
+- include: "alb.yaml"
+  when:
+    - lb_protocol != "TCP"
+
+- include: "nlb.yaml"
+  when:
+    - lb_protocol == "TCP"
+
+
+ 

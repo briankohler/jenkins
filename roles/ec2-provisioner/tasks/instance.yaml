@@ -1,0 +1,150 @@
+---
+
+- name: set environment prd
+  set_fact: 
+    instance_subnet_env: "prdprivate"
+  when: >
+        ec2_env == "prd"
+
+- name: set environment mgmt
+  set_fact:
+    instance_subnet_env: "mgmt"
+  when: >
+        ec2_env == "mgmt"
+
+- name: set environment prd
+  set_fact:
+    instance_subnet_env: "nonprdprivate"
+  when: >
+        instance_subnet_env is not defined
+
+- name: Provisioning EC2 instance(s) in VPC
+  local_action:
+    module: ec2
+    vpc_subnet_id: "{{ ec2_vpc_subnet[instance_subnet_env][item|int % ec2_vpc_subnet[instance_subnet_env]|length] }}"
+    key_name: "{{ ec2_key }}"
+    instance_type: "{{ ec2_instance_type }}"
+    wait: yes
+    image: "{{ ec2_ami_id }}"
+    exact_count: "1"
+    count_tag:
+      Name: "{{ ec2_env }}-{{ ec2_role }}{{ '%02d' | format(item|int + 1) }}"
+      AnsibleRole: "{{ ec2_role }}"
+      AnsibleEnv: "{{ ec2_env }}"
+      AZ: "{{ ec2_az[item|int % ec2_vpc_subnet[instance_subnet_env]|length] }}"
+    instance_initiated_shutdown_behavior: "{{ ec2_shutdown_behavior }}"
+    region: "{{ ec2_region }}"
+    spot_price: "{{ ec2_spot_price | default(omit) }}"
+    spot_type: "{{ ec2_spot_type }}"
+    termination_protection: "{{ ec2_termination_protection }}"
+    zone: "{{ ec2_az[item|int % ec2_vpc_subnet[instance_subnet_env]|length] }}"
+    monitoring: "{{ ec2_monitoring }}"
+    group: "{{ ec2_sg }}"
+    ebs_optimized: "{{ ec2_ebs_optimized }}"
+    instance_tags:
+      Name: "{{ ec2_env }}-{{ ec2_role }}{{ '%02d' | format(item|int + 1) }}"
+      AnsibleRole: "{{ ec2_role }}"
+      AnsibleEnv: "{{ ec2_env }}"
+      AZ: "{{ ec2_az[item|int % ec2_vpc_subnet[instance_subnet_env]|length] }}"
+    volumes:
+      - device_name: "/dev/sda1"
+        volume_type: "gp2"
+        volume_size: "{{ ec2_root_volume_size }}"
+    user_data: "{{ lookup('template', 'user_data.j2') }}"
+    instance_profile_name: "{{ ec2_iam_role }}"
+  register: ec2
+  when: ec2_count > 0 
+  with_sequence: start=0 end={{ ec2_count|int - 1 }}
+
+- name: Deprovision
+  local_action:
+    module: ec2
+    exact_count: "0"
+    wait: yes
+    image: "{{ ec2_ami_id }}"
+    count_tag:
+      Name: "{{ ec2_env }}-{{ ec2_role }}{{ '%02d' | format(item|int + 1) }}"
+      AnsibleRole: "{{ ec2_role }}"
+      AnsibleEnv: "{{ ec2_env }}"
+      AZ: "{{ ec2_az[item|int % ec2_vpc_subnet[instance_subnet_env]|length] }}"
+    region: "{{ ec2_region }}"
+    zone: "{{ ec2_az[item|int % ec2_vpc_subnet[instance_subnet_env]|length] }}"
+    vpc_subnet_id: "{{ ec2_vpc_subnet[instance_subnet_env][item|int % ec2_vpc_subnet[instance_subnet_env]|length] }}"
+  register: ec2_deprovision
+  when: ec2_count >= 0
+  with_sequence: start={{ ec2_count|int }} end={{ ec2.results|length }}
+
+- name: Register Route53
+  local_action:
+    module: "route53"
+    state: "create"
+    zone: "{{ ec2_domain }}."
+    private_zone: "{{ ec2_private_zone }}"
+    wait: no
+    vpc_id: "{{ ec2_vpc }}"
+    record: "{{ item.1.tags.Name }}.{{ ec2_domain }}"
+    type: "A"
+    overwrite: yes
+    ttl: "300"
+    value:
+      - "{{ item.1.private_ip }}"
+  with_subelements:
+    - "{{ ec2.results }}"
+    - instances
+  when: ec2.results is defined
+
+- name: Gather EC2 facts.
+  ec2_instance_facts:
+    region: "{{ ec2_region }}"
+    filters:
+      "tag:AnsibleRole": "{{ ec2_role }}"
+  register: ec2_instance_facts
+
+- name: Get Stale Route53 Records
+  local_action:
+    module: "route53"
+    state: "get"
+    private_zone: "{{ ec2_private_zone }}"
+    zone: "{{ ec2_domain }}."
+    record: "{{ ec2_env }}-{{ ec2_role }}{{ '%02d' | format(item|int + 1) }}.{{ ec2_domain }}"
+    type: "A"
+  register: stale_records
+  when: 
+    - groups['tag_AnsibleRole_' + ec2_role] is defined
+    - groups['tag_AnsibleRole_' + ec2_role]|length > ec2_count
+  with_sequence: start={{ ec2_count|int }} end={{ groups['tag_AnsibleRole_' + ec2_role]|length + 1 }}
+  ignore_errors: True
+
+- name: Deregister Route53  
+  local_action:
+    module: "route53"
+    state: delete
+    zone: "{{ ec2_domain }}."
+    private_zone: "{{ ec2_private_zone }}"
+    wait: no
+    vpc_id: "{{ ec2_vpc }}"
+    record: "{{ item.set.record }}"
+    type: "A"
+    ttl: "300"
+    value:
+      - "{{ item.set.value }}"
+  when: 
+    - stale_records['results'][0]['set'] is defined
+    - item.set.value is defined
+  with_items:
+    - "{{ stale_records.results | default([]) }}"
+  ignore_errors: True
+
+- name: Wait for SSH to come up
+  local_action:
+    module: wait_for
+    host: "{{ item.1.private_ip }}"
+    port: 22
+    delay: 15
+    timeout: 300
+    state: started
+  with_subelements:
+    - "{{ ec2.results }}"
+    - instances
+  when: ec2.results is defined
+
