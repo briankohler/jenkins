@@ -7,7 +7,13 @@
       - ansible
     java_packages:
       - java-1.8.0-openjdk
+    nginx_vhosts:
+      - listen: "80"
+        server_name: "jenkins.{{ ec2_domain }}"
+        return: "301 https://jenkins.{{ ec2_domain }}$request_uri"
+        filename: "jenkins301.conf"
   roles:
     - role: java
     - role: jenkins
       become: true
+    - role: nginx

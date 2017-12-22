@@ -7,3 +7,7 @@
 - src: https://github.com/geerlingguy/ansible-role-java.git
   version: master
   name: java
+
+- src: https://github.com/geerlingguy/ansible-role-nginx.git
+  version: master
+  name: nginx
