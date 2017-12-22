@@ -136,6 +136,7 @@
   lb_port: "443"
   lb_healthcheck_path: "/"
   lb_healthcheck_protocol: "HTTP"
+  lb_instance_protocol: "HTTP"
   lb_scheme: "internal"
   alb_http_routing_rule: "host-header"
   alb_http_routing_rule_patterns: []

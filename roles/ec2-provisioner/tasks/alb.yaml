@@ -54,7 +54,7 @@
 - name: Create alb target group
   elb_target_group:
      name: "{{ ec2_env }}-{{ ec2_role }}-tg"
-     protocol: "{{ lb_protocol }}"
+     protocol: "{{ lb_instance_protocol }}"
      port: "{{ lb_instance_port }}"
      modify_targets: yes
      region: "{{ ec2_region }}"
