@@ -9,8 +9,8 @@
       - java-1.8.0-openjdk
     nginx_vhosts:
       - listen: "80"
-        server_name: "jenkins.{{ ec2_domain }}"
-        return: "301 https://jenkins.{{ ec2_domain }}$request_uri"
+        server_name: "jenkins.mops.activision.com"
+        return: "301 https://jenkins.mops.activision.com$request_uri"
         filename: "jenkins301.conf"
   roles:
     - role: java
