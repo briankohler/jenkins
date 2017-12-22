@@ -7,10 +7,18 @@
       - ansible
     java_packages:
       - java-1.8.0-openjdk
+    nginx_upstreams:
+      - name: jenkins
+        servers:
+          "localhost:8080"
     nginx_vhosts:
       - listen: "80"
         server_name: "jenkins.mops.activision.com"
-        return: "301 https://jenkins.mops.activision.com$request_uri"
+        extra_parameters: |
+          if ($scheme == http) { 
+            return 301 https://jenkins.mops.activision.com$request_uri; 
+          }
+          proxy_pass http://jenkins;  
         filename: "jenkins301.conf"
   roles:
     - role: java
