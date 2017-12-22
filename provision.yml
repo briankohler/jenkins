@@ -7,7 +7,7 @@
     ec2_count: 1
     ec2_termination_protection: no
     ec2_iam_role: ec2_readonly
-    lb_instance_port: 8080
+    lb_instance_port: 80
     lb_healthcheck_path: '/'
     lb_healthcheck_protocol: "HTTP"
     lb_protocol: "HTTPS"
