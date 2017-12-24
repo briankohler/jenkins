@@ -2,45 +2,65 @@
 
 - name: set nlb prd
   set_fact:
-    lb_subnet_env: "prdprivate"
+    lb_subnet_env: "prd"
+    lb_dns_name: "{{ ec2_role }}.{{ ec2_domain }}"
+    lb_rule: "{{ ec2_role }}*.{{ ec2_domain }}"
   when: >
         ec2_env == "prd"
+
+- name: set nlb beta
+  set_fact:
+    lb_subnet_env: "prd"
+    lb_dns_name: "{{ ec2_env }}-{{ ec2_role }}.{{ ec2_domain }}"
+    lb_rule: "{{ ec2_env }}-{{ ec2_role }}*.{{ ec2_domain }}"
+  when: >
+        ec2_env == "beta"
 
 - name: set nlb mgmt
   set_fact:
     lb_subnet_env: "mgmt"
+    lb_dns_name: "{{ ec2_role }}.{{ ec2_domain }}"
+    lb_rule: "{{ ec2_role }}*.{{ ec2_domain }}"
   when: >
         ec2_env == "mgmt"
 
-- name: set nlb prd
+- name: set nlb nonprd
   set_fact:
-    lb_subnet_env: "nonprdprivate"
+    lb_subnet_env: "nonprd"
+    lb_dns_name: "{{ ec2_env }}-{{ ec2_role }}.{{ ec2_domain }}"
+    lb_rule: "{{ec2_env }}-{{ ec2_role }}*.{{ ec2_domain }}"
   when: >
         lb_subnet_env is not defined
 
-- name: Create nlb targets
+- name: Gather EC2 facts.
+  ec2_instance_facts:
+    region: "{{ ec2_region }}"
+    filters:
+      "tag:AnsibleRole": "{{ ec2_role }}"
+      "instance-state-code": "16"
+  register: ec2_instance_facts
+
+- name: Init nlb targets
   set_fact:
-    nlb_targets:
-      - Id: "{{ item.instance_id }}"
-        Port: "{{ lb_instance_port }}"
-  with_items:
+    nlb_targets: []
+
+- name: Create nlb targets 
+  set_fact:
+    nlb_targets: "{{ nlb_targets }} + [ {{{'Id':item.0.instance_id,'Port':item.1}}} ]"
+  with_nested:
     - "{{ ec2_instance_facts.instances }}"
+    - "{{ lb_port }}"
+
+- name: debug targets
+  debug:
+    msg: "{{ nlb_targets }}"
 
 - name: Create nlb target group
   command: >
-           bash -c "aws --region={{ ec2_region }} elbv2 create-target-group --name={{ ec2_env }}-{{ ec2_role }}-nlb-tg --protocol=TCP --port={{ lb_port }} --vpc-id={{ ec2_vpc }} | jq -r .TargetGroups[0].TargetGroupArn"
+           bash -c "aws --region={{ ec2_region }} elbv2 create-target-group --name={{ ec2_env }}-{{ ec2_role }}-{{ item }}-tg --protocol=TCP --port={{ item }} --vpc-id={{ ec2_vpc }} | jq -r .TargetGroups[0].TargetGroupArn"
   register: target_groups
-
-- name: debug target_groups
-  debug:
-    msg: "{{ target_groups }}"
-
-- name: Register Targets
-  command: >
-           aws --region {{ ec2_region }} elbv2 register-targets --target-group-arn {{ item.1 }} --targets Id={{ item.0.Id }} 
-  with_together:
-    - "{{ nlb_targets }}"
-    - "{{ target_groups.stdout_lines }}"
+  with_items:
+    - "{{ lb_port }}"
 
 - name: NLB Target Group Facts
   elb_target_group_facts:
@@ -49,37 +69,56 @@
       - "{{ ec2_env }}-{{ ec2_role }}-nlb-tg"
   register: nlb_target_group_facts
 
-- name: nlb facts
+- name: debug target group facts
+  debug:
+    msg: "{{ nlb_target_group_facts }}"
+
+- name: nlb_application_lb_facts
   elb_application_lb_facts:
     region: "{{ ec2_region }}"
     names:
-      - "{{ lb_subnet_env }}-{{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }}-nlb"
+      - "{{ ec2_env }}-{{ ec2_role }}-{{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }}-nlb"
   register: nlb_facts
   ignore_errors: True
 
 - name: Create NLB
   command: >
-           aws --region={{ ec2_region }} elbv2 create-load-balancer --type=network --name={{ lb_subnet_env }}-{{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }}-nlb --subnets {{ ec2_nlb[lb_subnet_env][lb_scheme]['subnets']|join(' ') }} --scheme={{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }} --tags=Key=Name,Value={{ lb_subnet_env }}-{{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }}-nlb
+          aws --region={{ ec2_region }} elbv2 create-load-balancer --type=network --name={{ ec2_env }}-{{ ec2_role }}-{{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }}-nlb --subnets {{ ec2_nlb[lb_subnet_env][lb_scheme]['subnets']|join(' ') }} --scheme={{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }} --tags=Key=Name,Value={{ ec2_env }}-{{ ec2_role }}-{{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }}-nlb
 
-- name: nlb facts
+- name: nlb_application_lb_facts
   elb_application_lb_facts:
     region: "{{ ec2_region }}"
     names:
-      - "{{ lb_subnet_env }}-{{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }}-nlb"
+      - "{{ ec2_env }}-{{ ec2_role }}-{{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }}-nlb"
   register: nlb_facts
-           
+
+- name: debug target_groups
+  debug:
+    msg: "{{ target_groups }}"
+
 - name: Add port rule
   command: >
-           aws --region={{ ec2_region }} elbv2 create-listener --load-balancer-arn {{ nlb_facts.load_balancers[0].load_balancer_arn|quote }} --protocol TCP --port {{ lb_port }} --default-actions Type=forward,TargetGroupArn={{ nlb_target_group_facts.target_groups[0].target_group_arn|quote }}
+           aws --region={{ ec2_region }} elbv2 create-listener --load-balancer-arn {{ nlb_facts.load_balancers[0].load_balancer_arn|quote }} --protocol TCP --port {{ item.0 }} --default-actions Type=forward,TargetGroupArn={{ item.1.stdout_lines[0]|quote }}
+  with_together:
+    - "{{ lb_port }}"
+    - "{{ target_groups.results }}"
 
-
-- elb_application_lb_facts:
+- name: nlb_application_lb_facts
+  elb_application_lb_facts:
     region: "{{ ec2_region }}"
     names:
-      - "{{ lb_subnet_env }}-{{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }}-nlb"
+      - "{{ ec2_env }}-{{ ec2_role }}-{{ ec2_nlb[lb_subnet_env][lb_scheme]['scheme'] }}-nlb"
   register: nlb_facts
 
-- name: Register ALB DNS Name
+- name: Register Targets
+  command: >
+           aws --region {{ ec2_region }} elbv2 register-targets --target-group-arn {{ item.1.stdout_lines[0] }} --targets Id={{ item.0.Id }},Port={{ item.2 }}
+  with_together:
+    - "{{ nlb_targets }}"
+    - "{{ target_groups.results }}"
+    - "{{ lb_port }}"
+
+- name: Register NLB DNS Name
   local_action:
     module: "route53"
     state: "create"
@@ -87,7 +126,7 @@
     private_zone: "{{ ec2_private_zone }}"
     wait: yes
     vpc_id: "{{ ec2_vpc }}"
-    record: "{{ ec2_role }}.{{ ec2_domain }}"
+    record: "{{ lb_dns_name }}"
     type: "CNAME"
     overwrite: yes
     ttl: "300"
@@ -95,5 +134,3 @@
       - "{{ item.dns_name }}"
   with_items:
     - "{{ nlb_facts.load_balancers }}"
-                    
-

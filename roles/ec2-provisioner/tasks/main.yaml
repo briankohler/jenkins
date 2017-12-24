@@ -8,7 +8,7 @@
 
 - include: "alb.yaml"
   when:
-    - lb_protocol != "TCP"
+    - lb_protocol == "HTTP" or lb_protocol == "HTTPS"
 
 - include: "nlb.yaml"
   when:

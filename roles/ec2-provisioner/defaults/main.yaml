@@ -132,7 +132,7 @@
       Name: "{{ ec2_env }}-alb-default-tg"
 
   alb_http_rules: []
-  lb_protocol: "HTTPS"
+  lb_protocol: ""
   lb_port: "443"
   lb_healthcheck_path: "/"
   lb_healthcheck_protocol: "HTTP"
