@@ -12,6 +12,13 @@
       - "jenkins*.mops.activision.com"
     alb_https_routing_rule_patterns:
       - "jenkins*.mops.activision.com"
+   sg_ingress_rules:
+     -
+       proto: tcp
+       ports: 
+         - "{{ lb_instance_port }}"
+       cidr_ip: "{{ sg_vpc_cidrs }}"
+               
     lb_healthcheck_path: '/'
     lb_healthcheck_protocol: "HTTP"
     lb_protocol: "HTTPS"
