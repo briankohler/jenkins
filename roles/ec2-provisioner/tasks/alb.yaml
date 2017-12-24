@@ -40,19 +40,13 @@
       "instance-state-code": "16"
   register: ec2_instance_facts
 
-- name: Init alb targets
-  set_fact:
-    alb_targets: []
-
 - name: Create alb targets 
   set_fact:
-    alb_targets: "{{ alb_targets }} + [{{ {'Id':item.instance_id,'Port':lb_instance_port} }}]"
+    alb_targets:
+      - Id: "{{ item.instance_id }}"
+        Port: "{{ lb_instance_port }}"
   with_items:
     - "{{ ec2_instance_facts.instances }}"
-
-- name: debug targets
-  debug:
-    msg: "{{ alb_targets }}"
 
 - name: Create default alb target group
   elb_target_group:  "{{ alb_default_target_group }}"
@@ -145,10 +139,12 @@
 
 - name: Register Targets
   command: >
-           aws --region {{ ec2_region }} elbv2 register-targets --target-group-arn {{ item.0.target_group_arn }} --targets Id={{ item.1.Id }},Port={{ lb_instance_port }} 
+           aws --region {{ ec2_region }} elbv2 register-targets --target-group-arn {{ item.1.target_group_arn }} --targets Id={{ item.0.instance_id }}
   with_nested:
+    - "{{ ec2_instance_facts.instances }}"
     - "{{ alb_target_group_facts.target_groups }}"
-    - "{{ alb_targets }}"
+  when:
+    - ec2_count|int > 0
 
 - name: elb_application_lb_facts
   elb_application_lb_facts:

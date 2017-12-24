@@ -18,6 +18,21 @@
   when: >
         instance_subnet_env is not defined
 
+- name: Group Facts
+  ec2_group_facts:
+    region: "{{ ec2_region }}"
+    filters:
+      vpc_id: "{{ ec2_vpc }}"
+      group-name: "{{ ec2_sg }}"
+      "tag:Name": "{{ ec2_sg }}"
+  register: group_facts
+
+- name: set sg id fact
+  set_fact:
+    ec2_sg_id: "{{ item.group_id }}"
+  with_items:
+    - "{{ group_facts.security_groups}}"
+
 - name: Provisioning EC2 instance(s) in VPC
   local_action:
     module: ec2
@@ -39,7 +54,7 @@
     termination_protection: "{{ ec2_termination_protection }}"
     zone: "{{ ec2_az[item|int % ec2_vpc_subnet[instance_subnet_env]|length] }}"
     monitoring: "{{ ec2_monitoring }}"
-    group: "{{ ec2_sg }}"
+    group_id: "{{ ec2_sg_id }}"
     ebs_optimized: "{{ ec2_ebs_optimized }}"
     instance_tags:
       Name: "{{ ec2_env }}-{{ ec2_role }}{{ '%02d' | format(item|int + 1) }}"
@@ -53,8 +68,17 @@
     user_data: "{{ lookup('template', 'user_data.j2') }}"
     instance_profile_name: "{{ ec2_iam_role }}"
   register: ec2
-  when: ec2_count > 0 
-  with_sequence: start=0 end={{ ec2_count|int - 1 }}
+  when: 
+    - ec2_count|int > 0 
+  with_sequence: start=0 end={{ ec2_count|int - 1 if ec2_count > 0 else 0 }}
+
+- name: Gather EC2 facts.
+  ec2_instance_facts:
+    region: "{{ ec2_region }}"
+    filters:
+      "tag:AnsibleRole": "{{ ec2_role }}"
+      "instance-state-code": "16"
+  register: ec2_instance_facts
 
 - name: Deprovision
   local_action:
@@ -71,8 +95,10 @@
     zone: "{{ ec2_az[item|int % ec2_vpc_subnet[instance_subnet_env]|length] }}"
     vpc_subnet_id: "{{ ec2_vpc_subnet[instance_subnet_env][item|int % ec2_vpc_subnet[instance_subnet_env]|length] }}"
   register: ec2_deprovision
-  when: ec2_count >= 0
-  with_sequence: start={{ ec2_count|int }} end={{ ec2.results|length }}
+  when: 
+    - ec2_count >= 0
+    - ec2_count < ec2_instance_facts.instances|length
+  with_sequence: end={{ ec2_count|int }} start={{ ec2_instance_facts.instances|length }} stride=-1
 
 - name: Register Route53
   local_action:
@@ -98,6 +124,7 @@
     region: "{{ ec2_region }}"
     filters:
       "tag:AnsibleRole": "{{ ec2_role }}"
+      "instance-state-code": "16"
   register: ec2_instance_facts
 
 - name: Get Stale Route53 Records

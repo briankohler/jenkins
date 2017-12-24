@@ -1,0 +1,48 @@
+---
+
+- name: set sg_subnet_env prd
+  set_fact: 
+    sg_subnet_env: "prdprivate"
+  when: >
+        ec2_env == "prd"
+
+- name: set sg_subnet_env mgmt
+  set_fact:
+    sg_subnet_env: "mgmt"
+  when: >
+        ec2_env == "mgmt"
+
+- name: set sg_subnet_env nonprd
+  set_fact:
+    sg_subnet_env: "nonprdprivate"
+  when: >
+        sg_subnet_env is not defined
+
+- name: Merge sg rules
+  set_fact:
+    sg_merged_ingress_rules: "{{ sg_default_ingress_rules }} + {{ sg_ingress_rules }}"
+    sg_merged_egress_rules: "{{ sg_default_egress_rules }} + {{ sg_egress_rules }}"
+ 
+- name: Create Instance security group
+  local_action:
+    module: ec2_group
+    name: "{{ ec2_env }}-{{ ec2_role }}-sg"
+    state: present
+    purge_rules: yes
+    purge_rules_egress: yes
+    description: "{{ ec2_env }}-{{ ec2_role }}-sg"
+    vpc_id: "{{ ec2_vpc }}"
+    region: "{{ ec2_region }}"
+    rules: "{{ sg_merged_ingress_rules }}"
+    rules_egress: "{{ sg_merged_egress_rules }}"
+    tags:
+      Name: "{{ ec2_env }}-{{ ec2_role }}-sg"
+
+- name: set ec2_sg
+  set_fact:
+    ec2_sg: "{{ ec2_env }}-{{ ec2_role }}-sg"
+
+- name: debug ec2_sg
+  debug:
+    msg: "{{ ec2_sg }} {{ ec2_sg_id }}"
+

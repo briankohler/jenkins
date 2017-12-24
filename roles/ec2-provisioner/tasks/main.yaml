@@ -4,15 +4,23 @@
   when:
     - rds_database is defined
     - rds_database != ""
+
+- include: "security_group.yaml"
+  when:
+    - ec2_sg is defined
+    - ec2_sg == ""
+
 - include: "instance.yaml"
 
 - include: "alb.yaml"
   when:
     - lb_protocol == "HTTP" or lb_protocol == "HTTPS"
+    - ec2_count|int > 0
 
 - include: "nlb.yaml"
   when:
     - lb_protocol == "TCP"
+    - ec2_count|int > 0
 
 
  

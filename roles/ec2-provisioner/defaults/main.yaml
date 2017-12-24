@@ -25,6 +25,8 @@
 
   ec2_private_zone: yes
   ec2_vpc: "vpc-7824d001"
+  ec2_vpc_cidr: "10.31.0.0/20"
+  ec2_vpn_cidr: "10.10.0.0/24"
   ec2_spot_type: 'persistent'
   ec2_shutdown_behavior: 'stop'
   ec2_monitoring: yes
@@ -39,7 +41,7 @@
     - "{{ ec2_region}}b"
     - "{{ ec2_region}}c"
 
-  ec2_sg: "default-sg"
+  ec2_sg: ""
   ec2_root_volume_size: 8
   ec2_ebs_optimized: false
   ec2_env: "mgmt"
@@ -180,6 +182,37 @@
       DefaultActions:
         - Type: forward
         - TargetGroupName: "{{ ec2_env}}-nlb-default-tg"
+
+  sg_vpc_cidrs:
+    - "{{ ec2_vpc_cidr }}"
+    - "{{ ec2_vpn_cidr }}"
+
+  sg_ingress_rules: []
+  sg_default_ingress_rules:
+    - 
+      proto: tcp
+      ports:
+        - 22
+        - 3389
+      cidr_ip: "{{ sg_vpc_cidrs }}"
+    - proto: udp
+      from_port: 53
+      to_port: 53
+      cidr_ip: "{{ sg_vpc_cidrs }}"
+    -
+      proto: icmp
+      from_port: "-1"
+      to_port: "-1"
+      cidr_ip: "0.0.0.0/0"
+
+  sg_egress_rules: []
+  sg_default_egress_rules:
+    - 
+      proto: all
+      from_port: "-1"
+      to_port: "-1"
+      cidr_ip: "0.0.0.0/0"
+
 
   rds_database: ""
   rds_db_engine: "MySQL"

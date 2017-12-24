@@ -112,11 +112,10 @@
 
 - name: Register Targets
   command: >
-           aws --region {{ ec2_region }} elbv2 register-targets --target-group-arn {{ item.1.stdout_lines[0] }} --targets Id={{ item.0.Id }},Port={{ item.2 }}
-  with_together:
-    - "{{ nlb_targets }}"
+           aws --region {{ ec2_region }} elbv2 register-targets --target-group-arn {{ item.1.stdout_lines[0] }} --targets Id={{ item.0.instance_id }}
+  with_nested:
+    - "{{ ec2_instance_facts.instances }}"
     - "{{ target_groups.results }}"
-    - "{{ lb_port }}"
 
 - name: Register NLB DNS Name
   local_action:
