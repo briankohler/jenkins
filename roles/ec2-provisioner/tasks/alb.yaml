@@ -48,6 +48,10 @@
   with_items:
     - "{{ ec2_instance_facts.instances }}"
 
+- name: debug targets
+  debug:
+    msg: "{{ alb_targets }}"
+
 - name: Create default alb target group
   elb_target_group:  "{{ alb_default_target_group }}"
 
