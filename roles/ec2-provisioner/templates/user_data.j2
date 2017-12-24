@@ -12,7 +12,7 @@ service cloud-init restart
 
 {% if callback_key is defined -%}
 
-curl -i -s -k --data "host_config_key={{ callback_key }}" https://mgmt-tower01.{{ ec2_domain }}/api/v1/job_templates/{{ job_template_id }}/callback/
+curl -i -s -k --data "host_config_key={{ callback_key }}" https://tower.{{ ec2_domain }}/api/v1/job_templates/{{ job_template_id }}/callback/
 
 {% endif %}
 
