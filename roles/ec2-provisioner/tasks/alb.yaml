@@ -145,10 +145,10 @@
 
 - name: Register Targets
   command: >
-           aws --region {{ ec2_region }} elbv2 register-targets --target-group-arn {{ item.1.target_group_arn }} --targets Id={{ item.0.Id }},Port={{ lb_instance_port }} 
-  with_together:
-    - "{{ alb_targets }}"
+           aws --region {{ ec2_region }} elbv2 register-targets --target-group-arn {{ item.0.target_group_arn }} --targets Id={{ item.1.Id }},Port={{ lb_instance_port }} 
+  with_nested:
     - "{{ alb_target_group_facts.target_groups }}"
+    - "{{ alb_targets }}"
 
 - name: elb_application_lb_facts
   elb_application_lb_facts:
