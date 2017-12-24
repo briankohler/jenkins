@@ -40,11 +40,13 @@
       "instance-state-code": "16"
   register: ec2_instance_facts
 
+- name: Init alb targets
+  set_fact:
+    alb_targets: []
+
 - name: Create alb targets 
   set_fact:
-    alb_targets:
-      - Id: "{{ item.instance_id }}"
-        Port: "{{ lb_instance_port }}"
+    alb_targets: "{{ alb_targets }} + [{{ {'Id':item.instance_id,'Port':lb_instance_port} }}]"
   with_items:
     - "{{ ec2_instance_facts.instances }}"
 
